@@ -1,0 +1,6 @@
+streamlit
+pandas
+numpy
+openai
+openpyxl # Нужно для чтения .xlsx
+xlsxwriter # Нужно для записи .xlsx
