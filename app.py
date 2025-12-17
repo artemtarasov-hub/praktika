@@ -14,14 +14,15 @@ st.set_page_config(
     layout="wide"
 )
 
-# Заголовок по вашему требованию
+# ЕДИНСТВЕННЫЙ ЗАГОЛОВОК
 st.title("📊 Практическая работа №1: Анализ финансовых результатов")
 
 # ==========================================
-# 2. ФУНКЦИИ (ОФОРМЛЕНИЕ И ЛОГИКА)
+# 2. ФУНКЦИИ
 # ==========================================
 
 def render_task(task_num, topic, goal, task_text):
+    """Выводит блок 'Задание'."""
     st.markdown(f"""
     <div style="background-color: #ffffff; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px; margin-top: 30px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
         <h4 style="color: #2c3e50; margin-top: 0;">📝 Задание {task_num}</h4>
@@ -33,10 +34,8 @@ def render_task(task_num, topic, goal, task_text):
     """, unsafe_allow_html=True)
 
 def render_table_header(table_num, analysis_full_name, subject_genitive, period=""):
-    """
-    Выводит заголовок таблицы строго по шаблону:
-    Таблица N. Вид анализа [чего], xxx, xxx, [период]
-    """
+    """Заголовок таблицы в одну строку."""
+    # Пример: Таблица 1. Вертикальный анализ финансовых результатов, xxx, xxx, 2022-2024 гг.
     header_text = f"<b>Таблица {table_num}.</b> {analysis_full_name} {subject_genitive}, xxx, xxx, {period}"
     st.markdown(f"""
     <div style="background-color: #f8f9fa; padding: 10px 15px; border-radius: 4px; margin-bottom: 5px; border-left: 5px solid #6c757d; color: #333; font-size: 15px;">
@@ -48,65 +47,50 @@ def get_ai_analysis(table_df, task_context, api_key):
     if not api_key: return "⚠️ Введите API Key для получения выводов."
     try:
         client = OpenAI(api_key=api_key, base_url="https://openai.api.proxyapi.ru/v1")
-        prompt = f"Ты финансовый аналитик. Контекст: {task_context}. Данные:\n{table_df.to_string()}\nНапиши краткий аналитический вывод (3-4 предложения) с цифрами в академическом стиле."
+        prompt = f"Ты студент. Контекст задания: {task_context}. Данные таблицы:\n{table_df.to_string()}\nНапиши аналитический вывод (3-4 предложения) в академическом стиле на русском языке."
         response = client.chat.completions.create(
-            model="anthropic/claude-sonnet-4-20250514", 
+            model="anthropic/claude-sonnet-4-20250514", # или gpt-4o-mini
             messages=[{"role": "user", "content": prompt}]
         )
         return response.choices[0].message.content
     except Exception as e: return f"❌ Ошибка API: {e}"
 
 def load_excel_sheet(file):
-    """Ищет лист с финансовыми результатами."""
+    """Ищет подходящий лист."""
     try:
         dfs = pd.read_excel(file, sheet_name=None, header=None)
         for name, df in dfs.items():
-            if 'фин' in name.lower() or 'результ' in name.lower() or 'форма 2' in name.lower(): return df
-        # Если явного названия нет, пробуем эвристику: ищем лист с кодом 2110
-        for name, df in dfs.items():
-            s = df.astype(str).to_string()
-            if '2110' in s: return df
+            if 'фин' in name.lower() or 'результ' in name.lower(): return df
+        if len(dfs) >= 3: return list(dfs.values())[2]
         return list(dfs.values())[0]
     except: return None
 
 def detect_year_in_df(df):
-    """
-    Пытается найти год отчета в первых строках файла (ищет 2020-2030).
-    Возвращает самый большой найденный год (считаем его отчетным).
-    """
+    """Ищет год в содержимом (2020-2029)."""
     if df is None: return None
-    
-    # Преобразуем первые 20 строк в текст
-    header_part = df.head(20).astype(str).to_string()
-    # Ищем года (2020-2029)
-    years = re.findall(r'202[0-9]', header_part)
-    
+    header_text = df.head(20).astype(str).to_string()
+    years = re.findall(r'202[0-9]', header_text)
     if years:
-        years = [int(y) for y in years]
-        return max(years) # Возвращаем самый свежий год
+        return max([int(y) for y in years])
     return None
 
 def get_values_by_code(df, code):
-    """Возвращает (Value_Current_Year, Value_Previous_Year)"""
+    """Возвращает (Текущий, Предыдущий) по коду строки."""
     if df is None: return (0, 0)
     values_found = []
     for index, row in df.iterrows():
         for i, cell in enumerate(row):
             try:
-                # Ищем код строки (например, 2110)
                 if pd.to_numeric(cell, errors='coerce') == code:
-                    # Как только нашли код, ищем справа от него два числа
                     for next_cell in row[i+1:]:
                         if pd.notna(next_cell) and str(next_cell).strip() not in ['', '-', '(-)']:
                             val_str = str(next_cell).replace(' ', '').replace('\xa0', '')
                             if val_str.startswith('(') and val_str.endswith(')'):
                                 val_str = '-' + val_str[1:-1]
                             val = pd.to_numeric(val_str, errors='coerce')
-                            
                             if pd.notna(val): values_found.append(val)
                             if len(values_found) == 2: return tuple(values_found)
             except: continue
-    
     if len(values_found) == 1: return (values_found[0], 0)
     return (0, 0)
 
@@ -119,15 +103,10 @@ with st.sidebar:
     use_ai = st.checkbox("✍️ Добавлять выводы ИИ", value=True)
     
     st.info("📂 Загрузка файлов")
-    # МУЛЬТИ-ЗАГРУЗКА
-    uploaded_files = st.file_uploader(
-        "Загрузите все отчеты (xlsx)", 
-        type=["xlsx"], 
-        accept_multiple_files=True
-    )
+    uploaded_files = st.file_uploader("Загрузите все отчеты (xlsx)", type=["xlsx"], accept_multiple_files=True)
 
 # ==========================================
-# 4. ОБРАБОТКА ДАННЫХ
+# 4. ОБРАБОТКА И АНАЛИЗ
 # ==========================================
 
 codes_map = {
@@ -137,156 +116,132 @@ codes_map = {
     'Чистая прибыль': 2400
 }
 
-df_res = pd.DataFrame()
-
 if uploaded_files:
-    # Словарь для сбора данных: {Год: {Показатель: Значение}}
-    master_data = {} 
-
+    master_data = {}
+    
+    # 1. Читаем файлы
     for file in uploaded_files:
         df_raw = load_excel_sheet(file)
         if df_raw is not None:
-            # 1. Пытаемся найти год в файле
-            detected_year = detect_year_in_df(df_raw)
-            
-            # Если год не найден внутри, пробуем вытащить из названия файла
-            if not detected_year:
+            # Определяем год
+            year = detect_year_in_df(df_raw)
+            if not year:
+                # Если не нашли внутри, ищем в имени файла
                 fname_years = re.findall(r'202[0-9]', file.name)
-                if fname_years:
-                    detected_year = int(max(fname_years))
-                else:
-                    st.warning(f"⚠️ Не удалось определить год для файла: {file.name}. Пропускаем.")
-                    continue
+                if fname_years: year = int(max(fname_years))
             
-            year_curr = detected_year
-            year_prev = detected_year - 1
-            
-            # 2. Извлекаем данные по кодам
-            for metric, code in codes_map.items():
-                val_curr, val_prev = get_values_by_code(df_raw, code)
-                
-                # Сохраняем текущий год
-                if year_curr not in master_data: master_data[year_curr] = {}
-                master_data[year_curr][metric] = val_curr
-                
-                # Сохраняем предыдущий год (только если его еще нет или мы перезаписываем более старые данные)
-                # Логика: Данные из "текущего" отчета обычно точнее (после корректировок), 
-                # поэтому если год уже есть как "current" в другом файле, не перезаписываем его как "prev".
-                if year_prev not in master_data: master_data[year_prev] = {}
-                
-                # Если значения для prev года еще нет, записываем
-                if metric not in master_data[year_prev]:
-                    master_data[year_prev][metric] = val_prev
+            if year:
+                # Парсим данные
+                for metric, code in codes_map.items():
+                    v_curr, v_prev = get_values_by_code(df_raw, code)
+                    
+                    if year not in master_data: master_data[year] = {}
+                    master_data[year][metric] = v_curr
+                    
+                    if (year-1) not in master_data: master_data[year-1] = {}
+                    if metric not in master_data[year-1]: # Не перезаписываем, если уже есть более точные данные
+                        master_data[year-1][metric] = v_prev
 
-    # 3. Превращаем в DataFrame
+    # 2. Создаем DataFrame
     if master_data:
-        df_res = pd.DataFrame(master_data).sort_index(axis=1) # Сортируем колонки-года по возрастанию
-        # Упорядочиваем строки по логическому порядку (как в codes_map)
+        df_res = pd.DataFrame(master_data).sort_index(axis=1) # Годы по возрастанию
         df_res = df_res.reindex(codes_map.keys())
+        years = sorted(df_res.columns)
         
-        years_avail = sorted([str(y) for y in df_res.columns])
-        st.success(f"✅ Данные успешно загружены за периоды: {', '.join(years_avail)}")
+        st.success(f"✅ Данные загружены за период: {years[0]} - {years[-1]} гг.")
         
-        # Определяем "базовые" года для анализа (два последних)
-        if len(years_avail) >= 2:
-            last_year = years_avail[-1]
-            prev_year = years_avail[-2]
+        # Определяем "базовые" годы (последний, предпоследний)
+        curr_y = years[-1]
+        prev_y = years[-2] if len(years) > 1 else years[0]
+        
+        # ---------------------------------------------------------
+        # ЗАДАНИЕ 1: ВЕРТИКАЛЬНЫЙ АНАЛИЗ
+        # ---------------------------------------------------------
+        render_task("1", "Анализ структуры финансовых результатов", "Изучение структуры доходов и расходов.",
+                   f"Провести вертикальный анализ за {years[0]}-{years[-1]} гг.")
+        
+        # Берем последние 3 года для отображения (или сколько есть)
+        disp_years = years[-3:] if len(years) >= 3 else years
+        
+        df_v = df_res[disp_years].copy()
+        cols_v = []
+        
+        for y in disp_years:
+            base = df_v.loc['Выручка', y]
+            df_v[f'Уд. вес {y} (%)'] = (df_v[y] / base * 100).fillna(0)
+            cols_v.extend([y, f'Уд. вес {y} (%)'])
+            
+        render_table_header("1", "Вертикальный сравнительный анализ", "финансовых результатов", f"{disp_years[0]}-{disp_years[-1]} гг.")
+        st.dataframe(df_v[cols_v].style.format("{:,.2f}"))
+        
+        if api_key and use_ai: st.info(get_ai_analysis(df_v[cols_v], "Структура доходов и расходов", api_key))
+
+        # ---------------------------------------------------------
+        # ЗАДАНИЕ 2: ГОРИЗОНТАЛЬНЫЙ АНАЛИЗ
+        # ---------------------------------------------------------
+        render_task("2", "Анализ динамики прибыли", "Оценка темпов роста.", 
+                   f"Провести горизонтальный анализ. База сравнения: {curr_y} год.")
+        
+        if len(years) >= 2:
+            df_h = df_res[disp_years].copy()
+            cols_h = disp_years.copy()
+            
+            # Логика как в вашем коде: Сравниваем Текущий (2024) с Пред (2023) и Пред-Пред (2022)
+            # 1. Сравнение с "Пред-Пред" (если есть, например 2022)
+            if len(disp_years) > 2:
+                y_base_old = disp_years[-3] # 2022
+                df_h[f'Откл. {curr_y}-{y_base_old}'] = df_h[curr_y] - df_h[y_base_old]
+                df_h[f'Темп {curr_y}/{y_base_old} (%)'] = (df_h[curr_y] / df_h[y_base_old] * 100).replace([np.inf, -np.inf], 0).fillna(0)
+                cols_h.extend([f'Откл. {curr_y}-{y_base_old}', f'Темп {curr_y}/{y_base_old} (%)'])
+            
+            # 2. Сравнение с "Пред" (2023)
+            y_prev = disp_years[-2] # 2023
+            df_h[f'Откл. {curr_y}-{y_prev}'] = df_h[curr_y] - df_h[y_prev]
+            df_h[f'Темп {curr_y}/{y_prev} (%)'] = (df_h[curr_y] / df_h[y_prev] * 100).replace([np.inf, -np.inf], 0).fillna(0)
+            cols_h.extend([f'Откл. {curr_y}-{y_prev}', f'Темп {curr_y}/{y_prev} (%)'])
+            
+            render_table_header("2", "Горизонтальный сравнительный анализ", "финансовых результатов", f"{disp_years[0]}-{curr_y} гг.")
+            st.dataframe(df_h[cols_h].style.format("{:,.2f}"))
+            
+            if api_key and use_ai: st.info(get_ai_analysis(df_h[cols_h], "Динамика прибыли", api_key))
         else:
-            last_year = years_avail[0]
-            prev_year = years_avail[0] # Fallback
+            st.warning("Недостаточно данных для горизонтального анализа (нужно минимум 2 года).")
 
-        # ==========================================
-        # ЗАДАНИЕ 1: ВЕРТИКАЛЬНЫЙ АНАЛИЗ (ДИНАМИЧЕСКИЙ)
-        # ==========================================
-        render_task("1", "Анализ структуры финансовых результатов", "Изучение структуры и структурной динамики доходов и расходов.", 
-                   f"На основе данных годовой отчетности провести <b>вертикальный сравнительный анализ</b> финансовых результатов за {years_avail[0]} - {years_avail[-1]} гг.")
-
-        df_v = df_res.copy()
-        display_cols = []
+        # ---------------------------------------------------------
+        # ЗАДАНИЕ 3: ТРЕНДОВЫЙ АНАЛИЗ
+        # ---------------------------------------------------------
+        render_task("3", "Трендовый анализ показателей", "Выявление тенденций.", "Трендовый анализ Чистой прибыли.")
         
-        for y in df_res.columns:
-            y_str = str(y)
-            base_val = df_v.loc['Выручка', y]
-            col_share = f'{y} (%)'
-            df_v[col_share] = (df_v[y] / base_val * 100).fillna(0)
-            display_cols.extend([y, col_share]) # Чередуем: Сумма, Процент
-
-        # Переставляем колонки для красоты
-        df_v_display = df_v[display_cols]
+        trend_rows = []
+        base_val_start = df_res.loc['Чистая прибыль', years[0]]
+        prev_val = None
         
-        render_table_header("1", "Вертикальный сравнительный анализ", "финансовых результатов", f"за {years_avail[0]}-{years_avail[-1]} гг.")
-        st.dataframe(df_v_display.style.format("{:,.2f}"))
-        
-        if api_key and use_ai:
-            st.info(get_ai_analysis(df_v_display, f"Вертикальный анализ за {years_avail}", api_key))
-
-        # ==========================================
-        # ЗАДАНИЕ 2: ГОРИЗОНТАЛЬНЫЙ АНАЛИЗ (ПОСЛЕДНИЕ 2 ГОДА)
-        # ==========================================
-        if len(years_avail) >= 2:
-            render_task("2", "Анализ динамики прибыли", "Оценка темпов изменения показателей финансовых результатов.", 
-                       f"Провести <b>горизонтальный сравнительный анализ</b>. Сравнение {last_year} года относительно {prev_year}.")
-
-            df_h = df_res[[int(prev_year), int(last_year)]].copy()
-            y1, y2 = int(prev_year), int(last_year)
+        for y in years:
+            val = df_res.loc['Чистая прибыль', y]
+            chain = (val/prev_val*100) if (prev_val and prev_val!=0) else (100 if prev_val is None else 0)
+            base = (val/base_val_start*100) if base_val_start!=0 else 0
             
-            diff_col = f'Откл. {last_year}-{prev_year}'
-            rate_col = f'Темп {last_year}/{prev_year} (%)'
-
-            df_h[diff_col] = df_h[y2] - df_h[y1]
-            df_h[rate_col] = (df_h[y2] / df_h[y1] * 100).replace([np.inf, -np.inf], 0).fillna(0)
-            
-            render_table_header("2", "Горизонтальный сравнительный анализ", "финансовых результатов", f"за {last_year}/{prev_year} гг.")
-            st.dataframe(df_h.style.format("{:,.2f}"))
-            
-            if api_key and use_ai:
-                st.info(get_ai_analysis(df_h, f"Сравнение {last_year} к {prev_year}", api_key))
-        else:
-            st.warning("Для горизонтального анализа нужно минимум 2 года данных.")
-
-        # ==========================================
-        # ЗАДАНИЕ 3: ТРЕНДОВЫЙ АНАЛИЗ (ВСЕ ГОДА)
-        # ==========================================
-        render_task("3", "Трендовый анализ показателей", "Выявление основной тенденции динамики показателя.", 
-                    "Составить таблицу <b>трендового анализа</b> Чистой прибыли. Рассчитать цепные и базисные темпы роста.")
-
-        trend_list = []
-        base_year_val = df_res.loc['Чистая прибыль', df_res.columns[0]]
-        prev_val_trend = None
-        
-        for y in df_res.columns:
-            curr = df_res.loc['Чистая прибыль', y]
-            
-            abs_ch = (curr - prev_val_trend) if prev_val_trend is not None else 0
-            rate_ch = (curr / prev_val_trend * 100) if (prev_val_trend and prev_val_trend != 0) else 100.0
-            rate_bs = (curr / base_year_val * 100) if base_year_val != 0 else 0
-            
-            trend_list.append({
-                'Год': str(y),
-                'Чистая прибыль': curr,
-                'Цепной темп %': rate_ch if y != df_res.columns[0] else 100,
-                'Базисный темп %': rate_bs
+            trend_rows.append({
+                'Год': str(y), 'Чистая прибыль': val,
+                'Цепной темп %': chain if y != years[0] else 100,
+                'Базисный темп %': base
             })
-            prev_val_trend = curr
+            prev_val = val
             
-        df_trend = pd.DataFrame(trend_list).set_index('Год')
-        render_table_header("3", "Трендовый анализ", "чистой прибыли", f"за {years_avail[0]}-{years_avail[-1]} гг.")
-        st.table(df_trend.style.format("{:,.2f}"))
-        
-        # График
-        st.line_chart(df_trend['Чистая прибыль'])
+        df_tr = pd.DataFrame(trend_rows).set_index('Год')
+        render_table_header("3", "Трендовый анализ", "чистой прибыли", f"{years[0]}-{years[-1]} гг.")
+        st.table(df_tr.style.format("{:,.2f}"))
 
-        # ==========================================
-        # ЗАДАНИЕ 4: ФАКТОРНЫЙ АНАЛИЗ (ПОСЛЕДНИЕ 2 ГОДА)
-        # ==========================================
-        if len(years_avail) >= 2:
-            render_task("4", "Факторный анализ прибыли", "Оценка влияния факторов на изменение результативного показателя.", 
-                       f"Провести <b>факторный анализ</b> Чистой прибыли ({last_year} к {prev_year}) методом цепных подстановок.")
+        # ---------------------------------------------------------
+        # ЗАДАНИЕ 4: ФАКТОРНЫЙ АНАЛИЗ
+        # ---------------------------------------------------------
+        if len(years) >= 2:
+            render_task("4", "Факторный анализ прибыли", "Оценка влияния факторов.", f"Анализ {curr_y} к {prev_y} г.")
             
-            def get_abs(row, yr): return abs(df_res.loc[row, int(yr)])
-
-            v0 = {k: get_abs(k, prev_year) for k in df_res.index}
-            v1 = {k: get_abs(k, last_year) for k in df_res.index}
+            def g(row, yr): return abs(df_res.loc[row, yr]) # Берем модуль для формул
+            
+            v0 = {k: g(k, prev_y) for k in df_res.index}
+            v1 = {k: g(k, curr_y) for k in df_res.index}
             
             factors = [
                 ('Выручка', v1['Выручка'] - v0['Выручка']),
@@ -298,109 +253,77 @@ if uploaded_files:
                 ('Налог на прибыль', -(v1['Налог на прибыль'] - v0['Налог на прибыль']))
             ]
             
-            # Собираем таблицу
             f_rows = []
-            total_inf = 0
+            tot = 0
             for name, val in factors:
-                row_name = name
-                # Сопоставление имен для получения базы/факта
+                key = name if name in v0 else name + ' продаж' if name+' продаж' in v0 else name
+                # Костыль для сопоставления имен
                 if name == 'Себестоимость': key = 'Себестоимость продаж'
-                elif name == 'Упр. расходы': key = 'Управленческие расходы'
-                elif name == 'Комм. расходы': key = 'Коммерческие расходы'
-                else: key = name
+                if name == 'Упр. расходы': key = 'Управленческие расходы'
+                if name == 'Комм. расходы': key = 'Коммерческие расходы'
                 
-                f_rows.append([name, v0[key], v1[key], val])
-                total_inf += val
+                f_rows.append([name, v0.get(key, 0), v1.get(key, 0), val])
+                tot += val
+                
+            f_rows.append(['ИТОГО влияние', 0, 0, tot])
             
-            # Итого
-            f_rows.append(['ИТОГО влияние', 0, 0, total_inf])
-            f_rows.append(['Изм. ЧП (Факт)', v0['Чистая прибыль'], v1['Чистая прибыль'], v1['Чистая прибыль']-v0['Чистая прибыль']])
+            df_fact = pd.DataFrame(f_rows, columns=['Фактор', f'Базис ({prev_y})', f'Факт ({curr_y})', 'Влияние'])
             
-            df_fact = pd.DataFrame(f_rows, columns=['Фактор', f'Базис ({prev_year})', f'Факт ({last_year})', 'Влияние'])
-            
-            render_table_header("4", "Факторный анализ", "чистой прибыли", f"за {last_year} к {prev_year} г.")
+            render_table_header("4", "Факторный анализ", "чистой прибыли", f"{curr_y} к {prev_y} г.")
             st.table(df_fact.style.format({col: "{:,.2f}" for col in df_fact.columns if col != 'Фактор'}))
             
-            if api_key and use_ai:
-                st.info(get_ai_analysis(df_fact, "Факторы изменения прибыли", api_key))
+            if api_key and use_ai: st.info(get_ai_analysis(df_fact, "Факторы прибыли", api_key))
 
-        # ==========================================
+        # ---------------------------------------------------------
         # ЗАДАНИЕ 5: АНАЛИЗ ЗАТРАТ
-        # ==========================================
-        if len(years_avail) >= 2:
-            render_task("5", "Анализ затрат на производство", "Оценка динамики и структуры расходов.", f"Провести анализ затрат за {prev_year} и {last_year} гг.")
+        # ---------------------------------------------------------
+        if len(years) >= 2:
+            render_task("5", "Анализ затрат на производство", "Динамика расходов.", f"{curr_y} к {prev_y} г.")
             
-            cost_rows = ['Себестоимость продаж', 'Коммерческие расходы', 'Управленческие расходы']
-            df_c = df_res.loc[cost_rows, [int(prev_year), int(last_year)]].apply(abs)
+            c_items = ['Себестоимость продаж', 'Коммерческие расходы', 'Управленческие расходы']
+            df_c = df_res.loc[c_items, [prev_y, curr_y]].apply(abs)
             df_c.loc['ИТОГО'] = df_c.sum()
             
-            y1, y2 = int(prev_year), int(last_year)
-            df_c['Темп роста %'] = (df_c[y2] / df_c[y1] * 100).fillna(0)
-            df_c[f'Доля {y1} %'] = (df_c[y1] / df_c.loc['ИТОГО', y1] * 100)
-            df_c[f'Доля {y2} %'] = (df_c[y2] / df_c.loc['ИТОГО', y2] * 100)
+            df_c['Абс. откл.'] = df_c[curr_y] - df_c[prev_y]
+            df_c['Темп %'] = (df_c[curr_y] / df_c[prev_y] * 100).replace([np.inf, -np.inf], 0).fillna(0)
             
-            render_table_header("5", "Комплексный анализ", "затрат на производство", "")
+            # Доля
+            tot_p, tot_c = df_c.loc['ИТОГО', prev_y], df_c.loc['ИТОГО', curr_y]
+            df_c[f'Доля {prev_y}%'] = (df_c[prev_y]/tot_p*100).fillna(0)
+            df_c[f'Доля {curr_y}%'] = (df_c[curr_y]/tot_c*100).fillna(0)
+            
+            render_table_header("5", "Комплексный анализ", "затрат на производство")
             st.dataframe(df_c.style.format("{:,.2f}"))
 
-        # ==========================================
-        # ЗАДАНИЕ 6: CVP (Берем последний год)
-        # ==========================================
-        render_task("6", "CVP-анализ (Анализ безубыточности)", "Определение точки безубыточности.", "Рассчитать точку безубыточности (ввод данных вручную).")
+        # ---------------------------------------------------------
+        # ЗАДАНИЕ 6: CVP
+        # ---------------------------------------------------------
+        render_task("6", "CVP-анализ", "Точка безубыточности.", "Калькулятор.")
         
-        cvp_type = st.radio("Тип:", ["Однопродуктовое", "Многопродуктовое"], horizontal=True)
+        col1, col2 = st.columns(2)
+        p = col1.number_input("Цена (P)", 1000.0)
+        avc = col1.number_input("VC на ед.", 600.0)
+        tfc = col2.number_input("TFC", 200000.0)
         
-        if cvp_type == "Однопродуктовое":
-            c1, c2 = st.columns(2)
-            p = c1.number_input("Цена (P)", 1000.0)
-            avc = c1.number_input("Перем. затраты (AVC)", 600.0)
-            # Пытаемся взять управленческие расходы последнего года как базу для TFC
-            default_tfc = df_res.loc['Управленческие расходы', int(last_year)] if len(years_avail)>0 else 200000.0
-            tfc = c2.number_input("Пост. затраты (TFC)", abs(float(default_tfc)))
-            
-            md = p - avc
-            if md > 0:
-                bep = tfc / md
-                st.metric("Точка безубыточности (шт)", f"{bep:,.0f}")
-                st.metric("Точка безубыточности (руб)", f"{bep*p:,.2f}")
-            else:
-                st.error("Маржа отрицательная (Цена < AVC)")
+        if p > avc:
+            bep = tfc / (p - avc)
+            st.success(f"BEP: {bep:,.0f} шт. | {bep*p:,.2f} руб.")
         else:
-            st.write("Введите данные для 3-х товаров:")
-            tfc_m = st.number_input("Общие TFC", 150000.0)
-            prods = []
-            cols = st.columns(3)
-            for i in range(3):
-                with cols[i]:
-                    r = st.number_input(f"Выручка {i+1}", 100000.0)
-                    v = st.number_input(f"VC {i+1}", 60000.0)
-                    prods.append((r,v))
-            
-            if st.button("Рассчитать CVP"):
-                tot_r = sum(x[0] for x in prods)
-                w_k = sum([(r-v)/r * (r/tot_r) for r,v in prods if r > 0])
-                if w_k > 0:
-                    st.success(f"Точка безубыточности (общая): {tfc_m/w_k:,.2f} руб.")
-                else:
-                    st.error("Невозможно рассчитать (низкая маржинальность)")
+            st.error("Убыток с единицы!")
 
-        # ==========================================
+        # ---------------------------------------------------------
         # СКАЧИВАНИЕ
-        # ==========================================
+        # ---------------------------------------------------------
         st.markdown("---")
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_res.to_excel(writer, sheet_name='Сводные_Данные')
-            if 'df_v_display' in locals(): df_v_display.to_excel(writer, sheet_name='Вертикальный')
+            df_v.to_excel(writer, sheet_name='Вертикальный')
             if 'df_h' in locals(): df_h.to_excel(writer, sheet_name='Горизонтальный')
-            if 'df_trend' in locals(): df_trend.to_excel(writer, sheet_name='Трендовый')
+            df_tr.to_excel(writer, sheet_name='Трендовый')
             if 'df_fact' in locals(): df_fact.to_excel(writer, sheet_name='Факторный', index=False)
-        
-        st.download_button(
-            "📥 Скачать сводный отчет", 
-            data=output.getvalue(), 
-            file_name="multi_year_analysis.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary"
-        )
+            if 'df_c' in locals(): df_c.to_excel(writer, sheet_name='Затраты')
+            
+        st.download_button("📥 Скачать Excel", data=output.getvalue(), file_name="report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 else:
-    st.info("👈 Пожалуйста, загрузите файлы отчетов (можно выбрать сразу несколько).")
+    st.info("👈 Загрузите файлы в меню слева (например, 2021.xlsx, 2022.xlsx, 2023.xlsx...).")
