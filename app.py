@@ -1,73 +1,95 @@
+import streamlit as st
 import pandas as pd
+import io
 
-# Предполагаем, что данные уже загружены в df_balance и df_results (или ваши исходные названия)
-# Убедитесь, что в ваших исходных файлах есть колонки '2022', '2023', '2024'
+# --- 1. ЗАГРУЗКА ДАННЫХ (Этот блок обязателен) ---
+st.title("Финансовый Анализ (2022-2024)")
 
-years = ['2022', '2023', '2024']
+uploaded_file = st.file_uploader("Загрузите Excel-файл с отчетностью", type=["xlsx", "xls"])
 
-# --- ЗАДАНИЕ 1: Структурно-динамический анализ (Горизонтальный и Вертикальный) ---
-
-def analyze_dynamics_3_years(df, entity_name="Показатель"):
-    """
-    Функция рассчитывает изменения за 3 года (2022-2024).
-    """
-    analysis = df.copy()
-    
-    # 1. Абсолютные изменения
-    analysis['Изм. 2023/2022 (абс.)'] = analysis['2023'] - analysis['2022']
-    analysis['Изм. 2024/2023 (абс.)'] = analysis['2024'] - analysis['2023']
-    
-    # 2. Темпы роста (%)
-    # Используем fillna(0) для избежания деления на ноль, если данные могут быть пустыми
-    analysis['Темп роста 2023/2022 (%)'] = (analysis['2023'] / analysis['2022'] * 100).fillna(0)
-    analysis['Темп роста 2024/2023 (%)'] = (analysis['2024'] / analysis['2023'] * 100).fillna(0)
-    
-    # Опционально: Общий тренд 2024 к 2022
-    analysis['Темп роста 2024/2022 (%)'] = (analysis['2024'] / analysis['2022'] * 100).fillna(0)
-
-    print(f"--- Анализ динамики: {entity_name} (2022-2024) ---")
-    return analysis
-
-# Пример вызова для Баланса (Задание 1)
-# Возвращаем название таблицы как "Бухгалтерский баланс" (или как было изначально)
-df_balance_analysis = analyze_dynamics_3_years(df_balance, entity_name="Бухгалтерский баланс")
-display(df_balance_analysis)
-
-
-# --- ЗАДАНИЕ 2: Расчет финансовых коэффициентов (за 3 года) ---
-
-def calculate_ratios_3_years(df_bal, df_res):
-    """
-    Расчет коэффициентов для каждого года из списка years.
-    """
-    ratios = pd.DataFrame(index=years)
-    
-    for year in years:
-        # Пример получения данных (здесь нужно подставить ваши реальные коды строк)
-        # Допустим: Активы (1600), Капитал (1300), Обязательства (1500+1400), Выручка (2110)
+if uploaded_file:
+    # Загружаем данные.
+    # ВАЖНО: Здесь я использую df_balance и df_results, как вы просили.
+    # Убедитесь, что в Excel листы называются именно так, или исправьте 'Balance' и 'Results' на ваши названия листов.
+    try:
+        df_balance = pd.read_excel(uploaded_file, sheet_name='Balance') # Или 'Баланс', проверьте имя листа!
+        df_results = pd.read_excel(uploaded_file, sheet_name='Results') # Или 'ОФР'
         
-        # Внимание: Убедитесь, что индексация или поиск строк настроен верно под ваш файл
-        # Ниже приведен пример логики доступа к данным
-        assets = df_bal.loc['1600', year] 
-        equity = df_bal.loc['1300', year]
-        current_liabilities = df_bal.loc['1500', year]
-        current_assets = df_bal.loc['1200', year]
-        revenue = df_res.loc['2110', year]
-        net_profit = df_res.loc['2400', year]
-
-        # 1. Рентабельность (Profitability)
-        ratios.loc[year, 'Рентабельность активов (ROA), %'] = (net_profit / assets * 100)
-        ratios.loc[year, 'Рентабельность продаж (ROS), %'] = (net_profit / revenue * 100)
+        # Приводим индексы к строковому типу, чтобы искать по кодам '1600' и т.д.
+        # Предполагаем, что коды строк находятся в первой колонке или индексе.
+        # Если коды строк в колонке 'Code', раскомментируйте строчку ниже:
+        # df_balance.set_index('Code', inplace=True)
+        # df_results.set_index('Code', inplace=True)
         
-        # 2. Ликвидность (Liquidity)
-        ratios.loc[year, 'Коэф. текущей ликвидности (CR)'] = current_assets / current_liabilities
+    except Exception as e:
+        st.error(f"Ошибка чтения листов Excel. Проверьте названия листов. Детали: {e}")
+        st.stop()
+
+    # Убеждаемся, что колонки называются '2022', '2023', '2024'. 
+    # Если в файле они называются иначе, нужно их переименовать здесь.
+    # Пример: df_balance.columns = ['Code', 'Name', '2024', '2023', '2022'] - подстройте под ваш файл.
+
+    # --- 2. ФУНКЦИИ АНАЛИЗА (Задание 1 и 2) ---
+    
+    def analyze_dynamics_3_years(df, entity_name="Показатель"):
+        analysis = df.copy()
+        # Выбираем только нужные колонки с годами
+        cols = ['2022', '2023', '2024']
         
-        # 3. Финансовая устойчивость
-        ratios.loc[year, 'Коэф. автономии'] = equity / assets
+        # Проверка наличия колонок
+        if not all(col in analysis.columns for col in cols):
+            st.error(f"В таблице {entity_name} нет колонок 2022, 2023 или 2024. Проверьте файл.")
+            return analysis
 
-    return ratios.T # Транспонируем, чтобы года были столбцами, как в исходных таблицах
+        # Абсолютные изменения
+        analysis['Изм. 2023/2022'] = analysis['2023'] - analysis['2022']
+        analysis['Изм. 2024/2023'] = analysis['2024'] - analysis['2023']
+        
+        # Темпы роста (%)
+        analysis['Темп роста 2023/2022 (%)'] = (analysis['2023'] / analysis['2022'] * 100).fillna(0)
+        analysis['Темп роста 2024/2023 (%)'] = (analysis['2024'] / analysis['2023'] * 100).fillna(0)
+        
+        return analysis
 
-# Пример вызова для Коэффициентов (Задание 2)
-print("--- Таблица: Финансовые коэффициенты (2022-2024) ---")
-df_ratios = calculate_ratios_3_years(df_balance, df_results)
-display(df_ratios)
+    def calculate_ratios_3_years(df_bal, df_res):
+        years = ['2022', '2023', '2024']
+        ratios = pd.DataFrame(index=years)
+        
+        # ВАЖНО: Убедитесь, что коды строк (1600, 1300...) являются индексами dataframe
+        # Если нет, используйте: val = df_bal.loc[df_bal['Код'] == 1600, year].values[0]
+        
+        for year in years:
+            try:
+                # Пример упрощенного доступа (если индекс = код строки)
+                assets = df_bal.loc[1600, year] 
+                equity = df_bal.loc[1300, year]
+                curr_liab = df_bal.loc[1500, year]
+                curr_assets = df_bal.loc[1200, year]
+                
+                revenue = df_res.loc[2110, year]
+                net_profit = df_res.loc[2400, year]
+
+                ratios.loc[year, 'Рентабельность активов (ROA), %'] = (net_profit / assets * 100)
+                ratios.loc[year, 'Коэф. текущей ликвидности (CR)'] = curr_assets / curr_liab
+                ratios.loc[year, 'Коэф. автономии'] = equity / assets
+            except KeyError:
+                st.warning(f"Не найдены коды строк для года {year}. Проверьте структуру Excel.")
+        
+        return ratios.T
+
+    # --- 3. ВЫПОЛНЕНИЕ И ВЫВОД (Где была ошибка) ---
+
+    st.subheader("Задание 1: Горизонтальный и вертикальный анализ")
+    
+    # Теперь df_balance точно существует
+    df_balance_analysis = analyze_dynamics_3_years(df_balance, entity_name="Бухгалтерский баланс")
+    st.write("Анализ Баланса:")
+    st.dataframe(df_balance_analysis)
+
+    st.subheader("Задание 2: Финансовые коэффициенты")
+    df_ratios = calculate_ratios_3_years(df_balance, df_results)
+    st.write("Коэффициенты (2022-2024):")
+    st.dataframe(df_ratios)
+
+else:
+    st.info("Пожалуйста, загрузите файл для начала работы.")
